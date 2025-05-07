@@ -661,24 +661,14 @@ class MailMateImporter:
         existing_paths = set()
         initial_count = 0 # Initialize initial_count
         
-        # Define the Message-ID you are investigating for targeted debugging
-        # DEBUG_TARGET_MSG_ID = "CAEU68o_QTHcK+GGKFSg__fW0P8LEXU5QbcDXKduawQp1Kn6+kw@mail.gmail.com" # Removed
-
         if self.skip_existing:
             try:
-                # logger.debug(f"Populating existing_message_ids set. Will specifically look for '{DEBUG_TARGET_MSG_ID}'.") # Removed
                 self.cursor.execute("SELECT message_id FROM emails WHERE message_id IS NOT NULL")
                 for row in self.cursor.fetchall():
                     msg_id_from_db = row[0]
                     existing_message_ids.add(msg_id_from_db)
-                    # if msg_id_from_db == DEBUG_TARGET_MSG_ID: # Removed
-                        # logger.debug(f"DEBUG: Target Message-ID '{DEBUG_TARGET_MSG_ID}' loaded into existing_message_ids from DB.") # Removed
                 
                 logger.info(f"Found {len(existing_message_ids)} existing emails in the database (by Message-ID)")
-                # if DEBUG_TARGET_MSG_ID in existing_message_ids: # Removed
-                    # logger.debug(f"DEBUG: Confirmed after loop: Target '{DEBUG_TARGET_MSG_ID}' IS in existing_message_ids set.") # Removed
-                # else: # Removed
-                    # logger.debug(f"DEBUG: Confirmed after loop: Target '{DEBUG_TARGET_MSG_ID}' IS NOT in existing_message_ids set.") # Removed
 
                 if self.use_paths_dedupe:
                     logger.info("Loading paths from database for deduplication...")
@@ -841,9 +831,6 @@ class MailMateImporter:
                 is_new_message_id = message_id not in existing_message_ids
                 
                 if self.skip_existing and not is_new_message_id:
-                    # Extra debug to confirm it's in the Python set AT THE MOMENT OF CHECKING
-                    # if message_id == DEBUG_TARGET_MSG_ID: # Log specifically for your target ID # Removed
-                        # logger.debug(f"DEBUG_TARGET_SKIP: Checking '{message_id}'. Is it in existing_message_ids? {message_id in existing_message_ids}. Set size: {len(existing_message_ids)}") # Removed
                     
                     if not (message_id in existing_message_ids): # This should ideally not happen if not is_new_message_id is true
                         logger.error(f"CRITICAL LOGIC FLAW or UNEXPECTED STATE: {message_id} reported as duplicate (is_new_message_id=False) but test '(message_id in existing_message_ids)' is False!")
