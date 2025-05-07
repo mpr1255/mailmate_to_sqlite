@@ -189,4 +189,4 @@ The script creates and populates the following tables in the SQLite database:
 
 ## License
 
-[Specify your license here, e.g., MIT License, Apache 2.0, etc. If unspecified, it's typically proprietary.]
+MIT
