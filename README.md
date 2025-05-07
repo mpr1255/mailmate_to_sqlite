@@ -1,7 +1,7 @@
 # MailMate to SQLite Importer
 This project is a fork of [keithrbennett/mailmate-to-pg](https://github.com/keithrbennett/mailmate-to-pg). Many thanks to Keith R. Bennett for the original work.
 
-<human> strictly vibecoded. Works on my computers. No guarantees of any sort, implied or etc. Based on mailmate to postgres, but basically rewritten by claude then 2.5 pro. It has zero dependencies but having fd installed will make it run way faster. I run this with cron at midnight and it works nicely as a backup. </human>
+&lt;human&gt; strictly vibecoded. Works on my computers. No guarantees of any sort, implied or etc. Based on mailmate to postgres, but basically rewritten by claude then 2.5 pro. It has zero dependencies but having fd installed will make it run way faster. I run this with cron at midnight and it works nicely as a backup. &lt;/human&gt;
 
 This script processes email data from MailMate's file storage and imports it into a SQLite database. It is designed to handle individual email files, extract metadata, content, and attachments, and organize them into a structured relational database.
 
