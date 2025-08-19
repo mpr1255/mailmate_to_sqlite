@@ -344,3 +344,5 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 .history/
+# macOS Finder
+.DS_Store

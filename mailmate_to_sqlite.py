@@ -63,6 +63,25 @@ class MailMateImporter:
         self.timeout = 60
         self.shutdown_requested = False
         
+    @staticmethod
+    def _normalize_fs_path(path_str: str) -> str:
+        """Normalize filesystem paths consistently for reliable comparisons.
+
+        - abspath + normpath: collapse dotted segments and make absolute
+        - realpath: resolve symlinks (helps when MailMate dir is a symlink)
+        - normcase: no-op on POSIX, lowercases on Windows
+        """
+        try:
+            # Order matters: normpath -> abspath -> realpath -> normcase
+            p = os.path.normpath(path_str)
+            p = os.path.abspath(p)
+            p = os.path.realpath(p)
+            p = os.path.normcase(p)
+            return p
+        except Exception:
+            # Fallback to a basic normalization if anything odd happens
+            return os.path.normpath(path_str)
+
     def connect_to_db(self):
         """Establish connection to SQLite database"""
         try:
@@ -348,8 +367,8 @@ class MailMateImporter:
                         # Fallback: Just use the last 3 path components
                         relative_folder_path = Path(*file_path.parent.parts[-3:])
                 
-                # Normalize the file path
-                normalized_path = os.path.abspath(os.path.normpath(str(file_path)))
+                # Normalize the file path (robustly, to improve path-dedup reliability)
+                normalized_path = self._normalize_fs_path(str(file_path))
                 
                 # Clear timeout
                 if timeout > 0:
@@ -681,7 +700,7 @@ class MailMateImporter:
                     for row in self.cursor.fetchall():
                         path_count += 1
                         orig_path = row[0]
-                        norm_path = os.path.normpath(orig_path)
+                        norm_path = self._normalize_fs_path(orig_path)
                         existing_paths.add(norm_path)
                         
                         if "/Messages/" in norm_path and ".noindex" not in norm_path:
@@ -714,7 +733,7 @@ class MailMateImporter:
         if self.skip_existing and self.use_paths_dedupe and existing_paths:
             for file_path_obj in all_files:
                 should_skip = False
-                norm_path = os.path.normpath(str(file_path_obj))
+                norm_path = self._normalize_fs_path(str(file_path_obj))
                 
                 if norm_path in existing_paths:
                     should_skip = True
@@ -831,10 +850,39 @@ class MailMateImporter:
                 is_new_message_id = message_id not in existing_message_ids
                 
                 if self.skip_existing and not is_new_message_id:
-                    
-                    if not (message_id in existing_message_ids): # This should ideally not happen if not is_new_message_id is true
+                    # Duplicate by Message-ID: record it as skipped for this run,
+                    # but opportunistically backfill the path and folder linkage
+                    # so future runs can use path-based dedupe and avoid parsing.
+                    if not (message_id in existing_message_ids):  # Defensive sanity check
                         logger.error(f"CRITICAL LOGIC FLAW or UNEXPECTED STATE: {message_id} reported as duplicate (is_new_message_id=False) but test '(message_id in existing_message_ids)' is False!")
-                    
+
+                    try:
+                        # Backfill path if missing or different
+                        normalized_db_path = self._normalize_fs_path(email_data.get("path", str(file_path)))
+                        self.cursor.execute(
+                            "UPDATE emails SET path = COALESCE(path, ?) WHERE message_id = ?",
+                            (normalized_db_path, message_id)
+                        )
+                        # Insert folder linkage if possible
+                        folder_path = email_data.get("folder")
+                        if folder_path:
+                            folder_id = self.insert_folder(folder_path, commit=False)
+                            if folder_id:
+                                self.cursor.execute(
+                                    "INSERT OR IGNORE INTO email_folders (email_id, folder_id) SELECT id, ? FROM emails WHERE message_id = ?",
+                                    (folder_id, message_id)
+                                )
+                        # Keep in-memory sets up to date for this process
+                        existing_message_ids.add(message_id)
+                        norm_path_for_set = normalized_db_path
+                        existing_paths.add(norm_path_for_set)
+                        if "/Messages.noindex/" in norm_path_for_set:
+                            existing_paths.add(norm_path_for_set.replace("/Messages.noindex/", "/Messages/"))
+                        elif "/Messages/" in norm_path_for_set:
+                            existing_paths.add(norm_path_for_set.replace("/Messages/", "/Messages.noindex/"))
+                    except Exception as e:
+                        logger.debug(f"Unable to backfill path/folder for duplicate Message-ID {message_id}: {e}")
+
                     logger.debug(f"Skipping (Message-ID duplicate: {message_id}): {file_path}")
                     skipped_due_to_existing_message_id += 1
                     batch_skipped_message_id += 1
@@ -848,7 +896,7 @@ class MailMateImporter:
                             imported_new += 1
                             batch_new += 1
                             existing_message_ids.add(message_id)
-                            norm_path_for_set = os.path.normpath(str(file_path))
+                            norm_path_for_set = self._normalize_fs_path(str(file_path))
                             existing_paths.add(norm_path_for_set)
                             if "/Messages.noindex/" in norm_path_for_set:
                                 existing_paths.add(norm_path_for_set.replace("/Messages.noindex/", "/Messages/"))

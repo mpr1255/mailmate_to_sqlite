@@ -1,7 +1,7 @@
 # MailMate to SQLite Importer
 This project is a fork of [keithrbennett/mailmate-to-pg](https://github.com/keithrbennett/mailmate-to-pg). Many thanks to Keith R. Bennett for the original work.
 
-&lt;human&gt; strictly vibecoded. Works on my computers. No guarantees of any sort, implied or etc. Based on mailmate to postgres, but basically rewritten by claude then 2.5 pro. It has zero dependencies but having fd installed will make it run way faster. I run this with cron at midnight and it works nicely as a backup. &lt;/human&gt;
+&lt;human&gt; strictly vibecoded. Works on my computers. No guarantees of any sort, implied or etc. Based on mailmate to postgres, but basically rewritten by claude then 2.5 pro. It has zero dependencies but having fd installed will make it run way faster. I run this with cron at 2am and it works nicely as a backup. &lt;/human&gt;
 
 This script processes email data from MailMate's file storage and imports it into a SQLite database. It is designed to handle individual email files, extract metadata, content, and attachments, and organize them into a structured relational database.
 
@@ -25,6 +25,8 @@ The script scans a specified MailMate messages directory, parses each email file
 *   **Deduplication**:
     *   Option to skip emails already present in the database based on `Message-ID`.
     *   Option to use file paths for faster deduplication, including handling of `.noindex` path variations.
+    *   Robust path normalization (abspath, normpath, realpath, normcase) for reliable path matching across symlinks/minor differences.
+    *   When skipping a duplicate by `Message-ID`, the importer backfills the normalized `path` and ensures folder linkage so future runs can skip by path without parsing.
 *   **Robustness & Logging**:
     *   Detailed logging to both console and a log file (`/tmp/mailmate.log`).
     *   Configurable log verbosity via `--verbose` flag.
@@ -46,7 +48,7 @@ The script scans a specified MailMate messages directory, parses each email file
 
 2.  **Make the script executable:**
     ```bash
-    chmod +x mailmate_to_sqlite_original.py
+    chmod +x mailmate_to_sqlite.py
     ```
 
 3.  **Dependencies:**
@@ -57,7 +59,7 @@ The script scans a specified MailMate messages directory, parses each email file
 Run the script from your terminal:
 
 ```bash
-./mailmate_to_sqlite_original.py --mailmate-dir /path/to/your/MailMate/Messages/ [OPTIONS]
+./mailmate_to_sqlite.py --mailmate-dir /path/to/your/MailMate/Messages/ [OPTIONS]
 ```
 
 **Required Argument:**
@@ -84,7 +86,7 @@ Run the script from your terminal:
 Import all emails from the default MailMate path to `my_mail.db`, skipping already imported ones using Message-ID and path deduplication, with verbose logging:
 
 ```bash
-./mailmate_to_sqlite_original.py \
+./mailmate_to_sqlite.py \
     --mailmate-dir ~/Library/Application\ Support/MailMate/Messages/ \
     --db-path my_mail.db \
     --skip-existing \
@@ -95,10 +97,41 @@ Import all emails from the default MailMate path to `my_mail.db`, skipping alrea
 Process only the first 500 emails:
 
 ```bash
-./mailmate_to_sqlite_original.py \
+./mailmate_to_sqlite.py \
     --mailmate-dir ~/Library/Application\ Support/MailMate/Messages/ \
     --limit 500
 ```
+
+## Delta Imports and Deduplication
+
+- `--skip-existing`: Skips emails whose `Message-ID` is already in the DB. This is quick for DB checks, but by itself still opens and parses files to learn the `Message-ID`.
+- `--use-paths-dedupe`: When used together with `--skip-existing`, the importer first loads existing `emails.path` values and filters out files by path (and `.noindex`/`Messages` alternates) before opening them. This avoids most parsing on repeat runs.
+
+Behavior notes
+- With `--skip-existing` enabled, existing rows are not updated. If you want to refresh updated messages with the same `Message-ID`, run without `--skip-existing` (the row will be updated).
+- Paths are normalized robustly (abspath, normpath, realpath, normcase) when reading from disk and from the DB, improving reliability of path-based dedupe across symlinks or minor path differences.
+- When a file is skipped due to duplicate `Message-ID`, the importer backfills the row’s normalized `path` and ensures the folder link exists. This primes future runs to take the fast path-only dedupe.
+
+What to look for in logs
+- On startup with `--skip-existing --use-paths-dedupe`, you should see:
+  - `Found N existing emails in the database (by Message-ID)`
+  - `Loaded X file paths ... Total unique paths ...`
+  - `Path-based filtering: A files already in database (by path), B potentially new to process`
+- Add `--verbose` to see more detail and sample paths.
+
+## Scheduling (cron example)
+
+Run nightly at 2am:
+
+```cron
+0 2 * * * flock -n /tmp/mailmate.lock \
+  /path/to/mailmate_to_sqlite.py \
+  --mailmate-dir "$HOME/Library/Application Support/MailMate/Messages" \
+  --db-path "/path/to/mail.db" \
+  --skip-existing --use-paths-dedupe >> /tmp/mailmate_cron.log 2>&1
+```
+
+Logs are also written to `/tmp/mailmate.log`.
 
 ## Database Schema
 
